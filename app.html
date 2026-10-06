@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FactorLab - what your integer is made of</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>&#129518;</text></svg>">
+<style>
+:root{--bg:#0d1117;--panel:#161b22;--panel2:#1c2330;--line:#2d3646;--fg:#e6edf3;--dim:#8b98a9;--ok:#3fb950;--warn:#d29922;--bad:#f85149;--acc:#58a6ff;--vio:#bc8cff}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+.wrap{max-width:1020px;margin:0 auto;padding:24px 16px 80px}
+h1{font-size:26px;margin:0 0 4px}
+.sub{color:var(--dim);margin:0 0 18px}
+a{color:var(--acc)}
+input[type=text]{width:100%;background:var(--panel2);color:var(--fg);border:1px solid var(--line);border-radius:8px;padding:12px;font:16px/1.4 ui-monospace,Menlo,monospace}
+label{font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);display:block;margin:0 0 6px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:16px}
+.presets{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0 0}
+button.ghost{background:transparent;color:var(--acc);border:1px solid var(--line);border-radius:8px;padding:6px 10px;font-size:12.5px;cursor:pointer}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-top:16px}
+@media(max-width:820px){.grid{grid-template-columns:1fr}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px 16px}
+.card h3{margin:0 0 8px;font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);font-weight:600}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:3px 14px;font-size:13.5px}
+.kv dt{color:var(--dim)}
+.kv dd{margin:0;font-family:ui-monospace,Menlo,monospace;font-size:12.5px;word-break:break-all}
+.badge{display:inline-block;border-radius:20px;padding:2px 10px;font-size:12px;margin:2px 4px 2px 0;border:1px solid var(--line)}
+.badge.ok{color:var(--ok);border-color:var(--ok)}
+.badge.warn{color:var(--warn);border-color:var(--warn)}
+.badge.vio{color:var(--vio);border-color:var(--vio)}
+.big{font-size:22px;font-weight:600;margin:6px 0;font-family:ui-monospace,Menlo,monospace;word-break:break-all}
+.verd-ok{color:var(--ok)} .verd-bad{color:var(--warn)}
+.tree{font-family:ui-monospace,Menlo,monospace;font-size:13px}
+.tree .node{border:1px solid var(--line);border-radius:8px;padding:4px 10px;margin:4px 0;background:var(--panel2);display:inline-block}
+.tree .kids{margin-left:22px;border-left:1px solid var(--line);padding-left:14px}
+.tree .leaf{border-color:var(--ok);color:var(--ok)}
+.divs{font-family:ui-monospace,Menlo,monospace;font-size:12px;word-break:break-all;color:var(--dim);max-height:150px;overflow:auto}
+.meta{color:var(--dim);font-size:12.5px;margin-top:24px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<h1>&#129518; FactorLab</h1>
+<p class="sub">Type any integer up to 2<sup>63</sup>-1. Deterministic Miller-Rabin primality, Pollard-Brent rho factorization, the full arithmetic workup - all in your browser, verified against GNU <code>factor</code>. <a href="index.html">About</a></p>
+<div class="panel">
+<label>integer (2 to 9223372036854775807)</label>
+<input type="text" id="inp" spellcheck="false" placeholder="9007199254740991">
+<div class="presets" id="presets"></div>
+</div>
+<div id="out"></div>
+<p class="meta">Engine: BigInt Miller-Rabin with the 12-witness deterministic set (proven below 3.3&times;10<sup>24</sup>), trial division, Pollard-Brent rho. Every factorization, totient, divisor and classification in the shipped corpus is verified against GNU factor + a Python oracle (tests/).</p>
+</div>
+<script src="engine.js?v=376"></script>
+<script>
+var PRESETS = [
+ ["561 - first Carmichael", "561"],
+ ["2047 - 2^11-1 fools base 2", "2047"],
+ ["3215031751 - liar for 2,3,5,7", "3215031751"],
+ ["8128 - perfect", "8128"],
+ ["8191 - Mersenne prime", "8191"],
+ ["2^53-1", "9007199254740991"],
+ ["semiprime near 10^18", "999999866000004473"],
+ ["20!", "2432902008176640000"],
+ ["65537 - Fermat prime", "65537"]
+];
+(function(){
+"use strict";
+var pr=document.getElementById('presets');
+PRESETS.forEach(function(p){
+  var b=document.createElement('button'); b.className='ghost'; b.textContent=p[0];
+  b.onclick=function(){ document.getElementById('inp').value=p[1]; run(); };
+  pr.appendChild(b);
+});
+document.getElementById('inp').addEventListener('input', run);
+var SUP={'0':'\u2070','1':'\u00b9','2':'\u00b2','3':'\u00b3','4':'\u2074','5':'\u2075','6':'\u2076','7':'\u2077','8':'\u2078','9':'\u2079'};
+function sup(e){ return String(e).split('').map(function(c){return SUP[c];}).join(''); }
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function kv(rows){return '<dl class="kv">'+rows.map(function(r){return '<dt>'+esc(r[0])+'</dt><dd>'+esc(r[1])+'</dd>';}).join('')+'</dl>';}
+function factorStr(f){
+  return f.map(function(fe){ return fe[1]>1 ? fe[0]+sup(fe[1]) : fe[0]; }).join(' \u00d7 ');
+}
+var CLEVER={prime:['prime','ok'],composite:['composite','warn'],'twin-prime':['twin prime','vio'],'cousin-prime':['cousin prime','vio'],'sexy-prime':['sexy prime','vio'],'mersenne-prime':['Mersenne prime','ok'],semiprime:['semiprime','warn'],sphenic:['sphenic','warn'],carmichael:['Carmichael','warn'],perfect:['perfect','ok'],'mersenne-composite':['Mersenne composite','warn'],'strong-liar':['fools Miller-Rabin','warn']};
+function tree(n){
+  // returns html for factor tree of BigInt n using FactorLab.factor
+  var f=FactorLab.factor(n).factors;
+  if(f.length===1 && f[0][1]===1) return '<span class="node leaf">'+esc(String(n))+'</span>';
+  var p=f[0][0], e=f[0][1];
+  var child=BigInt(p), rest=n/child;
+  var html='<div><span class="node">'+esc(String(n))+'</span><div class="kids">';
+  html+='<div>'+tree(child)+'</div>';
+  html+='<div>'+tree(rest)+'</div>';
+  html+='</div></div>';
+  return html;
+}
+function run(){
+  var text=document.getElementById('inp').value.trim();
+  var out=document.getElementById('out');
+  out.innerHTML='';
+  if(!text) return;
+  if(!/^\d+$/.test(text)){ out.innerHTML='<div class="card" style="margin-top:14px"><div class="big verd-bad">Digits only</div></div>'; return; }
+  var a;
+  try{ a=FactorLab.analyze(text); }
+  catch(e){ out.innerHTML='<div class="card" style="margin-top:14px"><div class="big verd-bad">'+esc(e.message)+'</div></div>'; return; }
+  var badges=a.classes.map(function(c){ var m=CLEVER[c]||[c,'']; return '<span class="badge '+m[1]+'">'+esc(m[0])+'</span>'; }).join('');
+  var verdict=a.isPrime
+    ? '<span class="verd-ok">PRIME</span>'
+    : '<span class="verd-bad">COMPOSITE</span>';
+  var factCard='<div class="card"><h3>Factorization</h3>'
+    +'<div class="big">'+esc(a.n)+' = '+esc(factorStr(a.factors))+'</div>'
+    +'<div style="margin:4px 0 10px">'+verdict+' '+badges+'</div>'
+    +(a.goldbach?'<div style="color:var(--dim);font-size:13px">Goldbach: '+esc(a.goldbach[0])+' + '+esc(a.goldbach[1])+'</div>':'')
+    +'</div>';
+  var arith='<div class="card"><h3>Arithmetic</h3>'+kv([
+    ['\u03c6(n) totient', a.phi],
+    ['\u03c3(n) divisor sum', a.sigma],
+    ['\u03c4(n) divisor count', a.tau],
+    ['\u03c9 / \u03a9', a.omega+' distinct / '+a.Omega+' with multiplicity'],
+    ['\u03bc(n) M\u00f6bius', String(a.mobius)],
+    ['squarefree', a.squarefree?'yes':'no'],
+    ['digits / bits', a.digits+' / '+a.bits]
+  ])+'</div>';
+  var liarCard='';
+  if(a.liarBases.length){
+    liarCard='<div class="card"><h3>It lies to Miller-Rabin</h3>'
+      +'<p style="color:var(--warn);font-size:13.5px;margin:0">This composite passes the strong probable-prime test for base'+(a.liarBases.length>1?'s':'')+' '+a.liarBases.join(', ')+'. A single-base test would call it prime. That is why the engine uses the 12-witness deterministic set.</p></div>';
+  }
+  var nb='<div class="card"><h3>Neighbors</h3>'+kv([
+    ['previous prime', a.prevPrime===null?'none (n \u2264 2)':a.prevPrime],
+    ['next prime', a.nextPrime]
+  ])+'</div>';
+  var treeCard='<div class="card"><h3>Factor tree</h3><div class="tree">'+tree(BigInt(a.n))+'</div></div>';
+  var divCard='';
+  if(a.divisors){
+    divCard='<div class="card"><h3>All '+a.divisorCountShown+' divisors</h3><div class="divs">'+a.divisors.join(', ')+'</div></div>';
+  }
+  var statCard='<div class="card"><h3>Work done</h3>'+kv([
+    ['time', a.ms+' ms'],
+    ['trial divisions', String(a.stats.trialDivisions)],
+    ['rho splits', String(a.stats.rhoCalls)]
+  ])+'</div>';
+  out.innerHTML='<div class="grid">'+factCard+arith+treeCard+nb+liarCard+divCard+statCard+'</div>';
+}
+run();
+})();
+</script>
+</body>
+</html>
